@@ -1,0 +1,15 @@
+Rampart Image Studio, including its RIS Engine, is MIT licensed (see LICENSE).
+
+The model code in engine/ris_engine/dit.py, engine/ris_engine/autoencoder.py,
+engine/ris_engine/text_encoder.py and engine/ris_engine/fp8.py contains portions derived
+from black-forest-labs/flux-3-image-klein (https://github.com/black-forest-labs/flux-3-image-klein),
+Copyright Black Forest Labs, licensed under the Apache License, Version 2.0
+(see LICENSE.apache-2.0).  Those files say so at the top and note what was changed.
+
+The model weights are not part of this software.  FLUX 3 Image Klein weights are
+released by Black Forest Labs under the FLUX Kommunity License; their use is
+governed by that license, not by this one.
+
+RIS Engine uses comfy_kitchen (https://pypi.org/project/comfy-kitchen/, Copyright Comfy Org,
+Apache License 2.0) as an installed library for its INT8 kernels; no comfy_kitchen code is
+included here.  Without it, the engine falls back to its own PyTorch FP8/bf16 code.

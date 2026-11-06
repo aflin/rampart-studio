@@ -1,0 +1,26 @@
+# Rampart Image Studio settings for this machine.  setup.sh copies this file to studio.conf
+# (not tracked by git); edit that copy.  Read by studio.sh.
+
+RAMPART=               # the rampart that Rampart Image Studio runs on (setup.sh fills this in)
+WEB_PORT=8088          # Rampart Image Studio at http://<host>:WEB_PORT/studio/ (setup.sh asks for it and HOST)
+HOST=127.0.0.1         # address to listen on: 127.0.0.1 this machine only, 0.0.0.0 every interface
+ENGINE_PORT=8189       # RIS Engine, always on 127.0.0.1
+
+# GPUs, numbered as nvidia-smi does (empty: all visible GPUs).  With two GPUs give each
+# part its own, the prompt enhancer on the smaller one, e.g. ENHANCER_GPU=0 ENGINE_GPU=1.
+# On one GPU the enhancer loads first and the engine takes what is left: model weights
+# that do not fit stream from CPU memory each step, which costs speed but not quality.
+#   24 GB or more: everything stays on the GPU
+#   12-16 GB:      runs; image steps up to 2x slower on 12 GB
+#   8 GB:          set ENHANCER_GPU_LAYERS to about 16 (captions get much slower) and
+#                  ENGINE_ARGS="--working-memory 1.5" (images up to 2 MP)
+ENGINE_GPU=
+ENHANCER_GPU=
+
+ENHANCER_SEQS=8        # captions the enhancer writes at once (each reserves 4096 tokens, ~0.2 GB)
+ENHANCER_GPU_LAYERS=all  # enhancer layers on the GPU (of 33); the rest run on the CPU, ~2 s per layer per caption
+ENGINE_ARGS=           # extra engine options; see: engine/engine.sh help server
+                       # (on a Mac: --quantize 4|8|none, default 8; --cache-gb GB, default 8, the freed
+                       # GPU memory MLX keeps for reuse)
+                       # (--gpu-memory GB caps the engine's GPU memory; --working-memory GB, default 2.5,
+                       # is the part kept for activations: 2.5 allows 4 MP images, 1.5 up to 2 MP)

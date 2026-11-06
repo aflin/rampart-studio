@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rampart Image Studio</title>
+<script>
+  // the theme chosen with the header switch (none: follow the system), set before the page draws
+  try { var t = localStorage.getItem("ris-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1c1a; --muted: #6b6862; --line: #e2dfd8;
+  --accent: #3b5bdb; --accent-ink: #fff; --tile: #ebe8e1; --danger: #c92a2a; --section: #f0efec;
+  color-scheme: light;
+}
+/* dark: when the system is (unless Light is chosen), or when Dark is chosen */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141414; --panel: #1e1e1e; --ink: #ecebe8; --muted: #9a978f; --line: #2f2f2f;
+    --accent: #6d8bff; --accent-ink: #0d0d0d; --tile: #262626; --danger: #ff6b6b; --section: #2a2a2a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141414; --panel: #1e1e1e; --ink: #ecebe8; --muted: #9a978f; --line: #2f2f2f;
+  --accent: #6d8bff; --accent-ink: #0d0d0d; --tile: #262626; --danger: #ff6b6b; --section: #2a2a2a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 28px 20px 60px; }
+.themebtn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: transparent;
+  color: var(--ink); display: grid; place-items: center; padding: 0; cursor: pointer; }
+.themebtn:hover { background: var(--tile); }
+.themebtn svg { width: 18px; height: 18px; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 16px; }
+/* on a narrow screen the model line goes under the name, and the theme button stays beside them */
+h1 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 20px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+h1 span { color: var(--muted); font-weight: 400; font-size: 14px; white-space: nowrap; }
+
+.composer { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+textarea { width: 100%; min-height: 84px; resize: vertical; border: 0; outline: 0; background: transparent;
+  color: var(--ink); font: inherit; font-size: 16px; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 10px;
+  padding-top: 12px; border-top: 1px solid var(--line); }
+.group { display: flex; align-items: center; gap: 6px; }
+.group[hidden] { display: none; }
+.label { color: var(--muted); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 999px;
+  padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; user-select: none; }
+.toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+.toggle[hidden] { display: none; }
+.toggle.off { opacity: .45; }
+input.seed { width: 150px; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px;
+  background: transparent; color: var(--ink); font: inherit; font-size: 13px; }
+.spacer { flex: 1; }
+.go { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px;
+  padding: 9px 20px; font: inherit; font-weight: 600; cursor: pointer; }
+.hint { color: var(--muted); font-size: 12px; }
+.upload { border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 14px; cursor: pointer;
+  color: var(--ink); }
+.upload input { display: none; }
+body.dragging .composer { outline: 2px dashed var(--accent); outline-offset: 4px; }
+.err { color: var(--danger); font-size: 13px; margin-top: 8px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 22px; align-items: start; }
+.tile { position: relative; background: var(--tile); border-radius: 10px; overflow: hidden; cursor: pointer;
+  aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; border: 0; padding: 0; width: 100%; }
+.tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile .state { color: var(--muted); font-size: 13px; text-align: center; padding: 12px; }
+.tile.pending { cursor: default; }
+.tile.pending::after { content: ""; position: absolute; left: 0; bottom: 0; height: 3px; width: 40%;
+  background: var(--accent); animation: slide 1.2s ease-in-out infinite; }
+.tile.failed .state { color: var(--danger); }
+.tile .cancel { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; border: 0;
+  padding: 0; background: rgba(0,0,0,.55); box-shadow: 0 0 0 1px rgba(255,255,255,.35); color: #fff;
+  font-size: 18px; line-height: 28px; cursor: pointer; }
+.tile .cancel:hover { background: rgba(0,0,0,.85); }
+@keyframes slide { 0% { left: -40%; } 100% { left: 100%; } }
+.set { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: var(--bg); cursor: default; aspect-ratio: auto; }
+.set button { border: 0; padding: 0; background: var(--tile); cursor: pointer; min-width: 0; min-height: 0; overflow: hidden; }
+.set button:hover img { opacity: .85; }
+.badge { position: absolute; left: 6px; bottom: 6px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px;
+  padding: 2px 7px; border-radius: 999px; pointer-events: none; }
+.empty { color: var(--muted); text-align: center; padding: 60px 0; grid-column: 1 / -1; }
+
+.viewer { position: fixed; inset: 0; background: rgba(0,0,0,.82); display: flex; gap: 20px; padding: 24px;
+  align-items: center; justify-content: center; z-index: 10; }
+.viewer[hidden] { display: none; }
+.pic { position: absolute; inset: 0; background-repeat: no-repeat; cursor: grab; touch-action: none; }
+.pic.dragging { cursor: grabbing; }
+.zoomhint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.55);
+  color: #fff; font-size: 12px; padding: 2px 10px; border-radius: 999px; pointer-events: none; transition: opacity .6s; }
+.meta { width: 340px; max-height: calc(100vh - 48px); overflow: auto; background: var(--panel); color: var(--ink);
+  border-radius: 12px; padding: 16px; font-size: 14px; flex-shrink: 0; }
+.meta p { margin: 0 0 12px; white-space: pre-wrap; }
+.meta .k { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+.meta details { margin-bottom: 12px; }
+.meta summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.actions button, .actions a { border: 1px solid var(--line); background: transparent; color: var(--ink);
+  border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; text-decoration: none; }
+.actions .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.actions .primary small { opacity: .75; }
+.actions button:disabled { opacity: .35; cursor: default; }
+.actions .del { color: var(--danger); }
+.meta textarea, .meta input.desc { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+  background: transparent; color: var(--ink); font: inherit; font-size: 13px; margin: 0 0 8px; }
+.meta textarea { min-height: 60px; resize: vertical; }
+.meta .chips { margin-bottom: 8px; }
+/* a dark disc like the arrows', with a faint ring, so it shows over the white panel, the image and the backdrop */
+.close { position: absolute; top: 10px; right: 14px; z-index: 1; width: 36px; height: 36px; border-radius: 50%;
+  border: 0; background: rgba(0,0,0,.6); box-shadow: 0 0 0 1px rgba(255,255,255,.35), 0 1px 4px rgba(0,0,0,.4);
+  color: #fff; font-size: 26px; line-height: 34px; padding: 0; cursor: pointer; }
+.close:hover { background: rgba(0,0,0,.85); }
+.stage { position: relative; flex: 1 1 auto; min-width: 0; max-width: 1100px; height: calc(100vh - 48px);
+  overflow: hidden; }   /* also clips the area selection's shading to the image */
+.nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%;
+  border: 0; background: rgba(0,0,0,.55); color: #fff; font-size: 24px; line-height: 44px; cursor: pointer; }
+.nav:hover { background: rgba(0,0,0,.8); }
+.nav.prev { left: 8px; } .nav.next { right: 8px; }
+.nav[hidden] { display: none; }
+.counter { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.55);
+  color: #fff; font-size: 12px; padding: 2px 10px; border-radius: 999px; }
+.counter[hidden] { display: none; }
+.pic.selecting { cursor: crosshair; }
+.selbox { position: absolute; border: 2px solid #ffd43b; box-shadow: 0 0 0 9999px rgba(0,0,0,.35);
+  pointer-events: none; }
+.selbox[hidden] { display: none; }
+.meta .note { color: var(--muted); font-size: 12px; margin: -2px 0 8px; }
+/* the panel's three parts (upscale, edit, what the image is) on cards; the edit tools' shaded */
+.meta .sec { border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 0; margin-bottom: 12px; }
+.meta .sec:last-child { margin-bottom: 0; }
+.meta .sec > :last-child { margin-bottom: 12px; }
+.meta .editsec { background: var(--section); }
+.meta .editsec textarea { background: var(--panel); }
+@media (max-width: 800px) {
+  .viewer { flex-direction: column; overflow: auto; justify-content: flex-start; }
+  .stage { flex: none; width: 100%; height: 60vh; }
+  .meta { width: 100%; max-height: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>Rampart Image Studio <span>FLUX 3 Image Klein · INT8</span></h1>
+    <button class="themebtn" id="theme" type="button"></button>
+  </div>
+
+  <form class="composer" id="form">
+    <textarea id="prompt" placeholder="Describe the image you want…" autofocus></textarea>
+    <div class="controls">
+      <div class="group"><span class="label">Mode</span>
+        <div class="chips" id="modes"></div></div>
+      <div class="group"><span class="label">Shape</span>
+        <div class="chips" id="aspects"></div></div>
+      <div class="group" id="sizeGroup"><span class="label">Size</span>
+        <div class="chips" id="sizes"></div></div>
+      <label class="toggle" title="Expands your prompt into the full scene caption the model expects. Recommended by Black Forest Labs; turn off only if you are writing a complete, detailed caption yourself.">
+        <input type="checkbox" id="upsample"> Enhance prompt</label>
+      <label class="toggle" id="varietyLabel" title="Write a different enhanced caption for each preview, for more varied ideas. Needs Enhance prompt.">
+        <input type="checkbox" id="variety"> Variety</label>
+      <input class="seed" id="seed" placeholder="Seed (random)" inputmode="numeric">
+      <span class="spacer"></span>
+      <span class="hint">Ctrl+Enter</span>
+      <label class="upload" title="Upload an image to upscale or edit (or drop one on the page)">Upload image
+        <input type="file" id="file" accept="image/*"></label>
+      <button class="go" id="go" type="submit">Generate</button>
+    </div>
+    <div class="err" id="err" hidden></div>
+  </form>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="viewer" id="viewer" hidden>
+  <button class="close" id="close" aria-label="Close">×</button>
+  <div class="stage">
+    <div id="vpic" class="pic" role="img" title="Scroll to zoom, drag to move, double-click to fit"></div>
+    <div id="vbox" class="selbox" hidden></div>
+    <span class="zoomhint" id="zoomhint">Scroll to zoom · drag to move · double-click to fit</span>
+    <button class="nav prev" id="prev" aria-label="Previous preview">‹</button>
+    <button class="nav next" id="next" aria-label="Next preview">›</button>
+    <span class="counter" id="counter"></span>
+  </div>
+  <div class="meta" id="vmeta"></div>
+</div>
+
+<script>
+(function () {
+  var API = "/apps/ris/";
+  var MODES = [["preview", "4 previews"], ["full", "Full size"]];
+  var ASPECTS = ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"];
+  var SIZES = [["1", "1 MP"], ["2", "2 MP"], ["4", "4 MP"]];
+  var UPSCALE_SECS = { "1": 9, "2": 19, "4": 45 };   // measured on the Spark, for button hints
+  var $ = function (id) { return document.getElementById(id); };
+
+  var PREFS_KEY = "ris-prefs-v3";
+  var prefs = { mode: "preview", aspect: "1:1", size: "1", upsample: true, variety: true };
+  try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREFS_KEY) || "{}")); } catch (e) {}
+  function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) {} }
+
+  function chips(el, items, key, onchange) {
+    items.forEach(function (it) {
+      var val = Array.isArray(it) ? it[0] : it, txt = Array.isArray(it) ? it[1] : it;
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "chip"; b.textContent = txt;
+      b.setAttribute("aria-pressed", prefs[key] === val);
+      b.onclick = function () {
+        prefs[key] = val; savePrefs();
+        el.querySelectorAll(".chip").forEach(function (c) { c.setAttribute("aria-pressed", c === b); });
+        if (onchange) onchange();
+      };
+      el.appendChild(b);
+    });
+  }
+  function syncMode() {
+    $("sizeGroup").hidden = prefs.mode !== "full";
+    $("varietyLabel").hidden = prefs.mode !== "preview";
+    $("variety").disabled = !prefs.upsample;
+    $("varietyLabel").classList.toggle("off", !prefs.upsample);
+  }
+  // the color theme, one button cycling Auto (follow the system) -> Light -> Dark; remembered in this browser
+  (function () {
+    var svg = function (body) {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+        'stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+    };
+    var THEMES = [
+      { id: "auto", name: "Auto (follows your system)",
+        icon: svg('<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>') },
+      { id: "light", name: "Light",
+        icon: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>') },
+      { id: "dark", name: "Dark",
+        icon: svg('<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>') }
+    ];
+    var b = $("theme"), i = Math.max(0, THEMES.map(function (t) { return t.id; }).indexOf(document.documentElement.dataset.theme || "auto"));
+    function show() {
+      var t = THEMES[i], next = THEMES[(i + 1) % THEMES.length];
+      b.innerHTML = t.icon;
+      b.title = "Theme: " + t.name + ". Click for " + next.name.replace(/ \(.*/, "") + ".";
+      b.setAttribute("aria-label", b.title);
+    }
+    b.onclick = function () {
+      i = (i + 1) % THEMES.length;
+      var id = THEMES[i].id;
+      if (id === "auto") delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = id;
+      try { if (id === "auto") localStorage.removeItem("ris-theme"); else localStorage.setItem("ris-theme", id); } catch (e) {}
+      show();
+    };
+    show();
+  })();
+  chips($("modes"), MODES, "mode", syncMode);
+  chips($("aspects"), ASPECTS, "aspect");
+  chips($("sizes"), SIZES, "size");
+  $("upsample").checked = !!prefs.upsample;
+  $("upsample").onchange = function () { prefs.upsample = this.checked; savePrefs(); syncMode(); };
+  $("variety").checked = !!prefs.variety;
+  $("variety").onchange = function () { prefs.variety = this.checked; savePrefs(); };
+  syncMode();
+
+  function post(path, body) {
+    return fetch(API + path, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body) }).then(function (r) { return r.json(); });
+  }
+  function get(path) { return fetch(API + path).then(function (r) { return r.json(); }); }
+  // the job id makes each image's URL unique: the server lets browsers cache images for good,
+  // and a file name alone has been reused (after deletions, and by earlier installs on the same host)
+  function src(f, job) { return API + "image.png?f=" + encodeURIComponent(f) + "&j=" + encodeURIComponent(job.id); }
+  function ratio(w, h) { return w && h ? w + " / " + h : "1 / 1"; }
+  function mpLabel(job) { return job.size >= 1 ? Math.round(job.size * 10) / 10 + " MP" : job.width + "×" + job.height; }
+  var KIND_LABEL = { preview: "Previews", upscale: "Upscaled", edit: "Edited", upload: "Uploaded" };
+
+  var grid = $("grid"), jobs = [];
+
+  function img(f, job) {
+    var i = document.createElement("img");
+    i.loading = "lazy"; i.alt = job.prompt || job.filename || ""; i.src = src(f, job);
+    return i;
+  }
+
+  function tileFor(job) {
+    var t;
+    if (job.kind === "preview") {
+      t = document.createElement("div");
+      t.className = "tile set";
+      job.files.forEach(function (f, i) {
+        var b = document.createElement("button");
+        b.type = "button"; b.title = "Open preview " + (i + 1);
+        b.style.aspectRatio = ratio(job.width, job.height);
+        b.appendChild(img(f, job));
+        b.onclick = function () { openViewer(job, i); };
+        t.appendChild(b);
+      });
+    } else {
+      t = document.createElement("button");
+      t.className = "tile"; t.type = "button";
+      t.style.aspectRatio = ratio(job.width, job.height);
+      t.appendChild(img(job.files[0], job));
+      t.onclick = function () { openViewer(job, 0); };
+    }
+    var badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = job.kind === "preview" ? "Previews" : KIND_LABEL[job.kind] ? KIND_LABEL[job.kind] + " · " + mpLabel(job) : mpLabel(job);
+    t.appendChild(badge);
+    return t;
+  }
+
+  function render() {
+    grid.querySelectorAll(".tile:not(.pending), .empty").forEach(function (n) { n.remove(); });
+    if (!jobs.length && !grid.querySelector(".pending")) {
+      var e = document.createElement("div"); e.className = "empty";
+      e.textContent = "Your images will appear here."; grid.appendChild(e); return;
+    }
+    jobs.forEach(function (j) { grid.appendChild(tileFor(j)); });
+  }
+
+  function loadGallery() {
+    get("gallery.json?limit=200").then(function (r) { jobs = r.images || []; render(); });
+  }
+
+  function showError(msg) { var e = $("err"); e.textContent = msg; e.hidden = !msg; }
+
+  function pendingTile(text) {
+    var ph = document.createElement("div");
+    ph.className = "tile pending";
+    ph.innerHTML = '<div class="state"></div>';
+    ph.firstChild.textContent = text;
+    var empty = grid.querySelector(".empty"); if (empty) empty.remove();
+    grid.insertBefore(ph, grid.firstChild);
+    return ph;
+  }
+
+  function start(path, body, label) {
+    showError("");
+    var ph = pendingTile(label);
+    post(path, body).then(function (r) {
+      if (r.error) throw new Error(r.error + (r.detail ? ": " + JSON.stringify(r.detail) : ""));
+      ph.style.aspectRatio = ratio(r.width, r.height);
+      track(r.id, ph);
+    }).catch(function (e) { ph.remove(); showError(e.message); if (!jobs.length) render(); });
+  }
+
+  function submit() {
+    var prompt = $("prompt").value.trim();
+    if (!prompt) { showError("Enter a prompt first."); return; }
+    start("generate.json", { prompt: prompt, mode: prefs.mode, aspect: prefs.aspect, size: prefs.size,
+                             upsample: prefs.upsample, variety: prefs.variety, seed: $("seed").value.trim() }, "Sending…");
+  }
+
+  function uploadFile(file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type || "image/")) { showError("That is not an image file."); return; }
+    showError("");
+    var ph = pendingTile("Uploading…");
+    fetch(API + "upload.json?name=" + encodeURIComponent(file.name || ""), { method: "POST",
+      headers: { "Content-Type": file.type || "image/unknown" }, body: file })
+      .then(function (r) { return r.json(); })
+      .then(function (job) {
+        if (job.error) throw new Error(job.error);
+        jobs.unshift(job);
+        ph.replaceWith(tileFor(job));
+        openViewer(job, 0);
+      }).catch(function (e) { ph.remove(); showError(e.message); if (!jobs.length) render(); });
+  }
+  $("file").onchange = function () { uploadFile(this.files[0]); this.value = ""; };
+  var dragDepth = 0;
+  document.addEventListener("dragenter", function (e) {
+    if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, "Files") >= 0) { dragDepth++; document.body.classList.add("dragging"); }
+  });
+  document.addEventListener("dragleave", function () { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
+  document.addEventListener("dragover", function (e) { e.preventDefault(); });
+  document.addEventListener("drop", function (e) {
+    e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging");
+    if (e.dataTransfer && e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+  });
+
+  function track(id, ph) {
+    var label = ph.querySelector(".state"), started = Date.now(), running = false, canceled = false;
+    var tick = setInterval(function () {
+      if (running) label.textContent = "Generating… " + ((Date.now() - started) / 1000).toFixed(0) + "s";
+    }, 500);
+    // cancel: the server stops the job and deletes it (and any of its images already done)
+    var x = document.createElement("button");
+    x.type = "button"; x.className = "cancel"; x.textContent = "×";
+    x.title = "Cancel"; x.setAttribute("aria-label", "Cancel");
+    x.onclick = function (e) {
+      e.stopPropagation();
+      canceled = true; clearInterval(tick); ph.remove();
+      if (!jobs.length && !grid.querySelector(".pending")) render();
+      post("cancel.json", { id: id }).then(function (r) {
+        if (r.error === "Already done") loadGallery();   // it finished first: show it after all
+      });
+    };
+    ph.appendChild(x);
+    (function poll() {
+      if (canceled) return;
+      get("status.json?id=" + id).then(function (s) {
+        if (canceled) return;
+        if (s.state === "done") {
+          clearInterval(tick);
+          jobs.unshift(s);
+          ph.replaceWith(tileFor(s));
+          return;
+        }
+        if (s.state === "error") {
+          clearInterval(tick);
+          x.remove();
+          ph.className = "tile failed";
+          label.textContent = s.error || "Failed";
+          ph.onclick = function () { ph.remove(); };
+          ph.title = "Click to dismiss";
+          return;
+        }
+        if (s.state === "running") {
+          if (!running) { running = true; started = Date.now(); label.textContent = "Generating…"; }
+        }
+        else if (s.state === "enhancing") label.textContent = "Enhancing prompt…";
+        else label.textContent = "Queued" + (s.ahead ? " (" + s.ahead + " ahead)" : "");
+        setTimeout(poll, 700);
+      }).catch(function () { if (!canceled) setTimeout(poll, 2000); });
+    })();
+  }
+
+  function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+
+  /* the full-size view: scroll zooms toward the pointer, dragging pans, double-click fits.
+     Adapted from the image viewer in rampart's file manager (from snappygoat.com and showfres):
+     the image is the element's background, sized and positioned in pixels. */
+  var zoomer = (function (el) {
+    var natW = 0, natH = 0, imgW = 0, imgH = 0, panX = 0, panY = 0, fitW = 0, fitH = 0, token = 0;
+    function view() { var r = el.getBoundingClientRect(); return { w: r.width, h: r.height }; }
+    function apply() {
+      el.style.backgroundSize = imgW + "px " + imgH + "px";
+      el.style.backgroundPosition = panX + "px " + panY + "px";
+      if (api && api.onview) api.onview();
+    }
+    // keep the image in view: centred along an axis where it is smaller than the view
+    function constrain() {
+      var v = view();
+      if (v.w < imgW) { panX = Math.min(0, Math.max(v.w - imgW, panX)); } else panX = (v.w - imgW) / 2;
+      if (v.h < imgH) { panY = Math.min(0, Math.max(v.h - imgH, panY)); } else panY = (v.h - imgH) / 2;
+      apply();
+    }
+    function fit() {
+      if (!natW) return;
+      var v = view();
+      if (v.w / v.h > natW / natH) { imgH = v.h; imgW = v.h * natW / natH; }
+      else { imgW = v.w; imgH = v.w * natH / natW; }
+      fitW = imgW; fitH = imgH;
+      constrain();
+    }
+    // zoom by factor toward the pointer (or the centre); up to 4x the image's own pixels
+    function zoom(factor, e) {
+      var v = view();
+      if (!natW || (imgW > natW * 4 && factor > 1) || (imgW < v.w * 0.25 && factor < 1)) return;
+      var fx = 0.5, fy = 0.5;
+      if (e) {
+        var r = el.getBoundingClientRect();
+        fx = (e.clientX - r.left - panX) / imgW;
+        fy = (e.clientY - r.top - panY) / imgH;
+      }
+      panX -= (imgW * factor - imgW) * fx;
+      panY -= (imgH * factor - imgH) * fy;
+      imgW *= factor; imgH *= factor;
+      constrain();
+    }
+    // zoom changes are gathered and applied once per animation frame, at most MAX_STEP per frame:
+    // a fast flick on a Mac trackpad goes on sending wheel events (momentum) at full speed,
+    // which zoomed far past what was meant
+    var MAX_STEP = 1.2, pending = 1, pendingAt = null, frame = 0;
+    function zoomSoon(factor, e) {
+      pending *= factor;
+      pendingAt = { clientX: e.clientX, clientY: e.clientY };
+      if (!frame) frame = requestAnimationFrame(function () {
+        frame = 0;
+        var f = Math.min(MAX_STEP, Math.max(1 / MAX_STEP, pending));
+        pending = 1;
+        zoom(f, pendingAt);
+      });
+    }
+    // adaptive wheel: calibrates on the first burst of events, so a mouse wheel's notches and a
+    // trackpad's stream of small deltas both zoom at a comfortable rate
+    var calib = true, count = 0, avg = 0, ups = 0.0037, downs = 0.033333333334;
+    el.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      // a trackpad pinch arrives as a wheel event with ctrlKey set (Chrome, Firefox, Safari 15+):
+      // zoom in proportion to it, so the image follows the fingers
+      if (e.ctrlKey) {
+        if (inGesture) return;   // Safari: the same pinch, already handled as a gesture
+        var dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+        zoomSoon(Math.exp(-dy * 0.01), e);
+        return;
+      }
+      // a two-finger sideways swipe pans
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        panX -= e.deltaMode === 1 ? e.deltaX * 16 : e.deltaX;
+        constrain();
+        return;
+      }
+      var d = Math.abs(e.deltaY);
+      if (!d) return;
+      avg = avg ? 0.9 * avg + 0.1 * d : d;
+      if (calib) {
+        count++;
+        if (calib === true) {
+          calib = "x";
+          setTimeout(function () {
+            calib = false;
+            ups = 0.1111111111 / count; downs = 0.1 / count;
+            if (ups > 0.11111111111) { ups = 0.111111111111; downs = 0.1; }
+          }, 50);
+        }
+      }
+      if (avg === 1) zoomSoon(e.deltaY < 0 ? 1.111111111 : 0.9, e);
+      else if (e.deltaY < 0) zoomSoon(1 + ups * d / avg, e);
+      else zoomSoon(Math.max(0.1, 1 - downs * d / avg), e);
+    }, { passive: false });
+    // Safari also reports trackpad pinches as gesture events; without handling them it zooms the page
+    var gestureScale = 1, inGesture = false;
+    el.addEventListener("gesturestart", function (e) { e.preventDefault(); gestureScale = 1; inGesture = true; });
+    el.addEventListener("gesturechange", function (e) {
+      e.preventDefault();
+      zoomSoon(e.scale / gestureScale, e);
+      gestureScale = e.scale;
+    });
+    el.addEventListener("gestureend", function (e) { e.preventDefault(); inGesture = false; });
+    el.addEventListener("mousedown", function (e) {
+      if (e.button !== 0 || api.selecting) return;
+      var lastX = e.pageX, lastY = e.pageY;
+      el.classList.add("dragging");
+      function move(m) { panX += m.pageX - lastX; panY += m.pageY - lastY; lastX = m.pageX; lastY = m.pageY; constrain(); }
+      function up() { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); el.classList.remove("dragging"); }
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+      e.preventDefault();
+    });
+    el.addEventListener("dblclick", fit);
+    // touch: one finger pans once zoomed in
+    var tx = 0, ty = 0;
+    el.addEventListener("touchstart", function (e) { if (e.touches.length === 1) { tx = e.touches[0].clientX; ty = e.touches[0].clientY; } }, { passive: true });
+    el.addEventListener("touchmove", function (e) {
+      if (api.selecting || e.touches.length !== 1 || !(imgW > fitW * 1.05 || imgH > fitH * 1.05)) return;
+      var t = e.touches[0];
+      panX += t.clientX - tx; panY += t.clientY - ty; tx = t.clientX; ty = t.clientY;
+      constrain(); e.preventDefault();
+    }, { passive: false });
+    // on resize keep the zoom relative to fit and the same image point at the centre
+    var prevW = 0, prevH = 0;
+    new ResizeObserver(function () {
+      var v = view();
+      if (!natW || !v.w || !v.h) return;
+      if (!prevW || !fitW) { fit(); prevW = v.w; prevH = v.h; return; }
+      var ratio = imgW / fitW, cx = (prevW / 2 - panX) / imgW, cy = (prevH / 2 - panY) / imgH;
+      if (v.w / v.h > natW / natH) { fitH = v.h; fitW = v.h * natW / natH; } else { fitW = v.w; fitH = v.w * natH / natW; }
+      imgW = fitW * ratio; imgH = fitH * ratio;
+      panX = v.w / 2 - cx * imgW; panY = v.h / 2 - cy * imgH;
+      prevW = v.w; prevH = v.h;
+      constrain();
+    }).observe(el);
+    var api = {
+      onview: null, selecting: false,
+      // a point of the page in image pixels (clamped to the image), and an image point in the element's pixels
+      toImage: function (clientX, clientY) {
+        var r = el.getBoundingClientRect();
+        return { x: Math.min(natW, Math.max(0, (clientX - r.left - panX) / imgW * natW)),
+                 y: Math.min(natH, Math.max(0, (clientY - r.top - panY) / imgH * natH)) };
+      },
+      toView: function (x, y) { return { x: panX + x / natW * imgW, y: panY + y / natH * imgH }; },
+      show: function (url, label) {
+        var mine = ++token, probe = new Image();
+        el.setAttribute("aria-label", label || "");
+        probe.onload = function () {
+          if (mine !== token) return;   // another image was opened meanwhile
+          natW = probe.naturalWidth; natH = probe.naturalHeight;
+          el.style.backgroundImage = 'url("' + url.replace(/"/g, '\\"') + '")';
+          var v = view(); prevW = v.w; prevH = v.h;
+          fit();
+        };
+        probe.src = url;
+      },
+      clear: function () { token++; natW = natH = 0; el.style.backgroundImage = ""; }
+    };
+    return api;
+  })($("vpic"));
+
+  var current = null;   // {job, index} shown in the viewer
+
+  /* an area of the viewed image to confine an edit to, in the image's pixels; drawn by dragging
+     on the image after "Select area" (zooming still works meanwhile) */
+  var area = null;
+  function showArea() {
+    var b = $("vbox");
+    if (!area) { b.hidden = true; return; }
+    var a = zoomer.toView(area.x, area.y), c = zoomer.toView(area.x + area.w, area.y + area.h);
+    b.style.left = a.x + "px"; b.style.top = a.y + "px";
+    b.style.width = (c.x - a.x) + "px"; b.style.height = (c.y - a.y) + "px";
+    b.hidden = false;
+  }
+  zoomer.onview = showArea;
+  function updateAreaUI() {
+    var b = $("vmeta").querySelector('[data-a="area"]'), note = $("areaNote");
+    $("vpic").classList.toggle("selecting", zoomer.selecting);
+    if (!b) return;
+    if (zoomer.selecting) {
+      b.textContent = "Cancel";
+      note.textContent = "Drag on the image around what to change.";
+    } else if (area) {
+      b.textContent = "Clear area";
+      note.textContent = "Only the marked area changes (" + Math.round(area.w) + "×" + Math.round(area.h) +
+        " px). Mark all of what should change, e.g. a whole cat, tail and ears included.";
+    } else {
+      b.textContent = "Select area";
+      note.textContent = "Optional: mark the part to change; the rest of the image stays exactly as it is.";
+    }
+  }
+  function resetArea() { area = null; zoomer.selecting = false; showArea(); updateAreaUI(); }
+  $("vpic").addEventListener("pointerdown", function (e) {
+    if (!zoomer.selecting || e.button !== 0) return;
+    var el = this, p0 = zoomer.toImage(e.clientX, e.clientY);
+    el.setPointerCapture(e.pointerId);
+    function move(m) {
+      var p = zoomer.toImage(m.clientX, m.clientY);
+      area = { x: Math.min(p0.x, p.x), y: Math.min(p0.y, p.y), w: Math.abs(p.x - p0.x), h: Math.abs(p.y - p0.y) };
+      showArea();
+    }
+    function up() {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      if (area && (area.w < 16 || area.h < 16)) area = null;   // a click, not a drag
+      if (area) zoomer.selecting = false;
+      showArea(); updateAreaUI();
+    }
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+    e.preventDefault();
+  });
+
+  // the full-size images (everything but previews) in gallery order, which the arrows step
+  // through when one of them is open; a preview set's arrows step through its four previews
+  function singles() {
+    return jobs.filter(function (j) { return j.kind !== "preview" && j.files && j.files.length; });
+  }
+  function step(d) {
+    if (!current) return;
+    if (current.job.kind === "preview") {
+      var n = current.job.files.length;
+      if (n > 1) openViewer(current.job, (current.index + d + n) % n);
+      return;
+    }
+    var list = singles(), id = current.job.id, i = list.findIndex(function (j) { return j.id === id; });
+    if (list.length > 1 && i >= 0) openViewer(list[(i + d + list.length) % list.length], 0);
+  }
+
+  function openViewer(job, index) {
+    var f = job.files[index], isPreview = job.kind === "preview", many = job.files.length > 1;
+    var isUpload = job.kind === "upload", isEdit = job.kind === "edit";
+    var caption = job.captions ? job.captions[index] : job.upsampled;
+    // uploads and edits have no caption to upscale from: the user may describe the image
+    var needsDescription = isUpload || isEdit;
+    current = { job: job, index: index };
+    area = null; zoomer.selecting = false; showArea();
+    zoomer.show(src(f, job), job.prompt || job.filename || "");
+    var pos = index, count = job.files.length;
+    if (!isPreview) {
+      var list = singles();
+      pos = list.findIndex(function (j) { return j.id === job.id; }); count = list.length;
+      many = pos >= 0 && count > 1;
+    }
+    $("prev").hidden = $("next").hidden = $("counter").hidden = !many;
+    $("counter").textContent = (pos + 1) + " / " + count;
+    $("prev").setAttribute("aria-label", isPreview ? "Previous preview" : "Previous image");
+    $("next").setAttribute("aria-label", isPreview ? "Next preview" : "Next image");
+    var secs = job.finished && job.created ? ((job.finished - job.created) / 1000).toFixed(1) + " s" : "";
+    // sizes no bigger than the image (or less than 10% bigger) are shown but grayed out
+    var ups = SIZES.map(function (s) {
+      var bigger = isPreview || +s[0] > job.size * 1.1;
+      return bigger
+        ? '<button class="primary" data-up="' + s[0] + '">' + s[1] + ' <small>~' + UPSCALE_SECS[s[0]] + 's</small></button>'
+        : '<button class="primary" disabled title="This image is already ' + mpLabel(job) + '">' + s[1] + '</button>';
+    }).join("");
+    var editSize = prefs.editSize || "1";
+    var editSizes = SIZES.map(function (s) {
+      return '<button type="button" class="chip" data-es="' + s[0] + '" aria-pressed="' + (s[0] === editSize) + '">' + s[1] + '</button>';
+    }).join("");
+    var what = isPreview ? "preview" : "image";
+    var name = isPreview ? "ris-" + job.seed + "-" + (index + 1) : job.seed != null ? "ris-" + job.seed : f.replace(/\.png$/, "");
+    $("vmeta").innerHTML =
+      '<div class="sec"><div class="k">Upscale this ' + what + '</div>' +
+        (needsDescription && ups.indexOf("data-up") >= 0 ? '<input class="desc" id="desc" placeholder="Describe the image (optional, helps the upscale)">' : '') +
+        '<div class="actions">' + ups + '</div></div>' +
+      '<div class="sec editsec"><div class="k">Edit this ' + what + '</div>' +
+      '<textarea id="editPrompt" placeholder="Describe the change, e.g. make it night time"></textarea>' +
+      '<div class="actions"><button data-a="area">Select area</button></div>' +
+      '<p class="note" id="areaNote"></p>' +
+      '<div class="chips">' + editSizes + '</div>' +
+      '<div class="actions"><button class="primary" data-a="edit">Edit</button></div></div>' +
+      '<div class="sec">' +
+      (isUpload ? '<div class="k">Uploaded image</div><p>' + esc(job.filename || f) + '</p>'
+                : '<div class="k">' + (isEdit ? "Prompt used for this edit" : "Prompt") + '</div><p>' + esc(job.prompt || "—") + '</p>') +
+      (caption && caption !== job.prompt ? '<details><summary>' + (job.upsample ? "Enhanced prompt" : "Caption") + (job.captions ? " (this preview's own)" : "") + '</summary><p>' + esc(caption) + '</p></details>' : '') +
+      '<div class="k">Details</div><p>' +
+        (isPreview ? "Preview " + (index + 1) + " of " + job.files.length + " · " : KIND_LABEL[job.kind] ? KIND_LABEL[job.kind] + " · " : "") +
+        job.width + "×" + job.height + (job.seed != null ? " · seed " + job.seed : "") + (secs && !isUpload ? " · " + secs : "") + '</p>' +
+      '<div class="actions">' +
+        (isUpload || isEdit ? '' : '<button data-a="reuse">Use prompt</button><button data-a="seed">Use prompt + seed</button>') +
+        '<a href="' + src(f, job) + '" download="' + name + '.png">Download</a>' +
+        '<button data-a="del" class="del">' + (isPreview ? "Delete all 4" : "Delete") + '</button>' +
+      '</div></div>';
+    $("vmeta").querySelectorAll(".chip[data-es]").forEach(function (c) {
+      c.onclick = function () {
+        prefs.editSize = c.dataset.es; savePrefs();
+        $("vmeta").querySelectorAll(".chip[data-es]").forEach(function (o) { o.setAttribute("aria-pressed", o === c); });
+      };
+    });
+    $("editPrompt").addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("vmeta").querySelector('[data-a="edit"]').click(); }
+    });
+    $("vmeta").querySelectorAll("button:not(.chip)").forEach(function (b) {
+      b.onclick = function () {
+        var a = b.dataset.a;
+        if (b.dataset.up) {
+          var desc = $("desc") ? $("desc").value.trim() : "";
+          closeViewer();
+          start("upscale.json", { id: job.id, index: index, size: b.dataset.up, prompt: desc }, "Upscaling…");
+        } else if (a === "edit") {
+          var instruction = $("editPrompt").value.trim();
+          if (!instruction) { $("editPrompt").focus(); $("editPrompt").placeholder = "Describe the change first"; return; }
+          var body = { id: job.id, index: index, prompt: instruction, size: prefs.editSize || "1" };
+          if (area) body.box = [Math.round(area.x), Math.round(area.y), Math.round(area.w), Math.round(area.h)];
+          closeViewer();
+          start("edit.json", body, area ? "Editing area…" : "Editing…");
+        } else if (a === "area") {
+          if (zoomer.selecting) zoomer.selecting = false;
+          else if (area) { area = null; showArea(); }
+          else zoomer.selecting = true;
+          updateAreaUI();
+        } else if (a === "reuse" || a === "seed") {
+          $("prompt").value = job.prompt;
+          $("seed").value = a === "seed" ? job.seed : "";
+          prefs.upsample = !!job.upsample; $("upsample").checked = prefs.upsample;
+          if (job.kind === "preview" && job.upsample) { prefs.variety = !!job.variety; $("variety").checked = prefs.variety; }
+          savePrefs(); syncMode();
+          closeViewer(); $("prompt").focus();
+        } else if (a === "del") {
+          if (b.dataset.confirm) {
+            post("delete.json", { id: job.id }).then(function () {
+              jobs = jobs.filter(function (j) { return j.id !== job.id; });
+              closeViewer(); render();
+            });
+          } else { b.dataset.confirm = 1; b.textContent = "Click again to delete"; }
+        }
+      };
+    });
+    updateAreaUI();
+    var wasHidden = $("viewer").hidden;
+    $("viewer").hidden = false;
+    if (wasHidden) {   // show the controls hint briefly each time the viewer opens
+      var hint = $("zoomhint");
+      hint.style.opacity = 1;
+      clearTimeout(hint.timer);
+      hint.timer = setTimeout(function () { hint.style.opacity = 0; }, 2500);
+    }
+  }
+  function closeViewer() { $("viewer").hidden = true; zoomer.clear(); current = null; resetArea(); }
+
+  $("close").onclick = closeViewer;
+  $("prev").onclick = function () { step(-1); };
+  $("next").onclick = function () { step(1); };
+  $("viewer").onclick = function (e) { if (e.target === this || e.target.className === "stage") closeViewer(); };
+  document.addEventListener("keydown", function (e) {
+    if ($("viewer").hidden) return;
+    if (e.key === "Escape") closeViewer();
+    else if (/^(TEXTAREA|INPUT)$/.test(e.target.tagName)) return;
+    else if (e.key === "ArrowLeft") step(-1);
+    else if (e.key === "ArrowRight") step(1);
+  });
+  $("form").onsubmit = function (e) { e.preventDefault(); submit(); };
+  $("prompt").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+  });
+
+  loadGallery();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+# created by setup.sh
+/rampart/
+/engine/pylib/
+/engine/pycache/
+/weights/
+/studio.conf
+/studio.conf.tmp
+*.part
+
+# created while running
+/web_server/data/
+/web_server/logs/
+/web_server/server.pid
+/web_server/server.fg.pid
+/engine/engine.pid
+/engine/engine.args
+/engine/engine.log*
+__pycache__/
