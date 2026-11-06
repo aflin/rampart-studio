@@ -52,6 +52,10 @@ Rampart (or, once Rampart's installer supports it, installs one into `rampart/`)
 on (default 127.0.0.1, this machine only; 0.0.0.0 for every interface, so other machines can
 connect). Run again, it offers the current settings and changes only what you change.
 `--port` and `--host` set them without asking, as when it runs without a terminal.
+With more than one NVIDIA GPU it also asks which runs the image engine (one GPU) and which the
+prompt enhancer (one, or several to split it across them), suggesting the GPU with the most
+memory for the engine and another for the enhancer; `--engine-gpu` and `--enhancer-gpu` answer
+without asking.
 `setup.sh --help` lists its options. `git pull` followed by `./setup.sh` picks up new
 package pins or weights.
 

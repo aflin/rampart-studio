@@ -7,7 +7,9 @@ HOST=127.0.0.1         # address to listen on: 127.0.0.1 this machine only, 0.0.
 ENGINE_PORT=8189       # RIS Engine, always on 127.0.0.1
 
 # GPUs, numbered as nvidia-smi does (empty: all visible GPUs).  With two GPUs give each
-# part its own, the prompt enhancer on the smaller one, e.g. ENHANCER_GPU=0 ENGINE_GPU=1.
+# part its own, the prompt enhancer on the smaller one, e.g. ENHANCER_GPU=0 ENGINE_GPU=1;
+# setup.sh asks when there are several.  The engine uses one GPU; the enhancer can be split
+# across several, e.g. ENHANCER_GPU=0,2.
 # On one GPU the enhancer loads first and the engine takes what is left: model weights
 # that do not fit stream from CPU memory each step, which costs speed but not quality.
 #   24 GB or more: everything stays on the GPU

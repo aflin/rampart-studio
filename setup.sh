@@ -11,6 +11,8 @@
 #   ./setup.sh --own-rampart   install rampart into ./rampart even if one is found elsewhere
 #   ./setup.sh --port 8088 --host 127.0.0.1   the web address, without asking (setup.sh asks for
 #                            both when run in a terminal; 0.0.0.0 listens on every interface)
+#   ./setup.sh --engine-gpu 1 --enhancer-gpu 0   with several NVIDIA GPUs, which runs what, without
+#                            asking (the enhancer may be split across several: --enhancer-gpu 0,2)
 #   RAMPART=/path/to/bin/rampart ./setup.sh    use that rampart
 #   RAMPART_INSTALLER=URL ./setup.sh           fetch rampart's installer script from URL
 #                                              (default https://get.rampart.dev/)
@@ -25,7 +27,7 @@ ROOT=$PWD
 # compiled bytecode goes into the project, never next to rampart's python (as engine/engine.sh)
 export PYTHONPYCACHEPREFIX=$ROOT/engine/pycache
 
-PYTHON=1 WEIGHTS=1 VERIFY=0 FP8=0 OWN_RAMPART=0 OPT_PORT= OPT_HOST=
+PYTHON=1 WEIGHTS=1 VERIFY=0 FP8=0 OWN_RAMPART=0 OPT_PORT= OPT_HOST= OPT_ENGINE_GPU= OPT_ENHANCER_GPU=
 while [ $# -gt 0 ]; do
     case $1 in
         --no-python)  PYTHON=0 ;;
@@ -35,10 +37,15 @@ while [ $# -gt 0 ]; do
         --own-rampart) OWN_RAMPART=1 ;;
         --port=*)     OPT_PORT=${1#*=} ;;
         --host=*)     OPT_HOST=${1#*=} ;;
-        --port|--host)
+        --engine-gpu=*)   OPT_ENGINE_GPU=${1#*=} ;;
+        --enhancer-gpu=*) OPT_ENHANCER_GPU=${1#*=} ;;
+        --port|--host|--engine-gpu|--enhancer-gpu)
             [ $# -gt 1 ] || { echo "$1 needs a value (see --help)" >&2; exit 1; }
-            if [ "$1" = --port ]; then OPT_PORT=$2; else OPT_HOST=$2; fi; shift ;;
-        -h|--help)    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+            case $1 in
+                --port) OPT_PORT=$2 ;; --host) OPT_HOST=$2 ;;
+                --engine-gpu) OPT_ENGINE_GPU=$2 ;; --enhancer-gpu) OPT_ENHANCER_GPU=$2 ;;
+            esac; shift ;;
+        -h|--help)    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)            echo "unknown option: $1 (see --help)" >&2; exit 1 ;;
     esac
     shift
@@ -160,6 +167,62 @@ if [ "$port" != "$(conf_get WEB_PORT)" ] || [ "$host" != "$(conf_get HOST)" ] ||
     fi
 else
     echo "Web address: $url, unchanged"
+fi
+
+# --- GPUs ---------------------------------------------------------------------------
+# With more than one NVIDIA GPU: which one runs the image engine (it uses one) and which
+# the prompt enhancer (one, or several: llama.cpp splits its layers across them).  Asked in
+# a terminal like the web address, with the current settings as the defaults, or on a first
+# run a suggestion; otherwise set by --engine-gpu/--enhancer-gpu, or the suggestion when unset.
+gpu_list=
+[ $PLATFORM = linux ] && command -v nvidia-smi >/dev/null \
+    && gpu_list=$(nvidia-smi --query-gpu=index,memory.total,compute_cap,name --format=csv,noheader,nounits 2>/dev/null || true)
+ngpu=$(printf '%s\n' "$gpu_list" | grep -c . || true)
+if [ "$ngpu" -gt 1 ]; then
+    # "index GB compute_cap" per GPU, the engine's choice first: the most memory (to the GB,
+    # so two 12 GB cards count as equal), then the newest architecture
+    ranked=$(printf '%s\n' "$gpu_list" | awk -F', *' '{ printf "%s %d %s\n", $1, ($2 + 0) / 1024 + 0.5, $3 + 0 }' | sort -k2,2nr -k3,3gr)
+    gpu_ids=" $(printf '%s\n' "$gpu_list" | cut -d, -f1 | tr '\n' ' ')"
+    rec_engine=$(echo "$ranked" | head -1 | cut -d' ' -f1)
+    # the enhancer needs about 6.3 GB (an 8 GB card): the largest other GPU that holds it, or the fewest other
+    # GPUs that do together, or else the engine's GPU (the engine then takes what is left)
+    rec_enhancer=$(echo "$ranked" | tail -n +2 | awk -v e="$rec_engine" '
+        { gb += $2; ids = ids (ids == "" ? "" : ",") $1; if (gb >= 8) { print ids; found = 1; exit } }
+        END { if (!found) print e }')
+    valid_gpu() { [[ $1 =~ ^[0-9]+$ ]] && [[ $gpu_ids == *" $1 "* ]]; }
+    valid_gpus() {   # one GPU, or several separated by commas, each once
+        local IFS=, g seen=" "
+        [[ $1 =~ ^[0-9]+(,[0-9]+)*$ ]] || return 1
+        for g in $1; do valid_gpu "$g" && [[ $seen != *" $g "* ]] || return 1; seen+="$g "; done
+    }
+    gpu_name() { local IFS=, g out=; for g in $1; do out+="${out:+ + }$(printf '%s\n' "$gpu_list" | awk -F', *' -v i="$g" '$1 == i { print $4 }')"; done; echo "$out"; }
+    cur_engine=$(conf_get ENGINE_GPU) cur_enhancer=$(conf_get ENHANCER_GPU)
+    valid_gpu "$cur_engine" || cur_engine=$rec_engine
+    valid_gpus "$cur_enhancer" || cur_enhancer=$rec_enhancer
+    [ -z "$OPT_ENGINE_GPU" ] || valid_gpu "$OPT_ENGINE_GPU" || die "--engine-gpu $OPT_ENGINE_GPU: give one GPU number from nvidia-smi ($(echo $gpu_ids))"
+    [ -z "$OPT_ENHANCER_GPU" ] || valid_gpus "$OPT_ENHANCER_GPU" || die "--enhancer-gpu $OPT_ENHANCER_GPU: give one GPU number from nvidia-smi, or several like 0,1 ($(echo $gpu_ids))"
+    engine_gpu=$OPT_ENGINE_GPU enhancer_gpu=$OPT_ENHANCER_GPU
+    if [ -t 0 ] && [ -z "$engine_gpu$enhancer_gpu" ]; then
+        say "GPUs (Enter keeps the value in brackets)"
+        printf '%s\n' "$gpu_list" | awk -F', *' '{ m = $2 + 0; printf "  %s  %-30s %s\n", $1, $4, m ? sprintf("%.0f GB", m / 1024) : "" }'
+        echo "The image engine runs on one GPU.  The prompt enhancer needs about 6.3 GB: on a GPU of its"
+        echo "own the engine keeps all of the other, or it can be split across several (like 0,1)."
+        engine_gpu=$(ask "GPU for the image engine" "$cur_engine" valid_gpu)
+        enhancer_gpu=$(ask "GPU(s) for the prompt enhancer" "$cur_enhancer" valid_gpus)
+    fi
+    engine_gpu=${engine_gpu:-$cur_engine} enhancer_gpu=${enhancer_gpu:-$cur_enhancer}
+    gpus_text="engine on $engine_gpu ($(gpu_name "$engine_gpu")), enhancer on $enhancer_gpu ($(gpu_name "$enhancer_gpu"))"
+    if [ "$engine_gpu" != "$(conf_get ENGINE_GPU)" ] || [ "$enhancer_gpu" != "$(conf_get ENHANCER_GPU)" ]; then
+        old_gpus="$(conf_get ENGINE_GPU)/$(conf_get ENHANCER_GPU)"
+        conf_set ENGINE_GPU "$engine_gpu"
+        conf_set ENHANCER_GPU "$enhancer_gpu"
+        echo "GPUs: $gpus_text, saved in studio.conf"
+        if [ "$old_gpus" != / ] && [ -f web_server/server.pid ] && kill -0 "$(cat web_server/server.pid)" 2>/dev/null; then
+            echo "Rampart Image Studio is running on the old GPUs; restart it to use the new ones: ./studio.sh restart"
+        fi
+    else
+        echo "GPUs: $gpus_text, unchanged"
+    fi
 fi
 
 # --- rampart ------------------------------------------------------------------------
