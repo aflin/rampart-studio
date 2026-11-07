@@ -198,7 +198,20 @@ body.dragging .composer { outline: 2px dashed var(--accent); outline-offset: 4px
   var MODES = [["preview", "4 previews"], ["full", "Full size"]];
   var ASPECTS = ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"];
   var SIZES = [["1", "1 MP"], ["2", "2 MP"], ["4", "4 MP"]];
-  var UPSCALE_SECS = { "1": 9, "2": 19, "4": 45 };   // measured on the Spark, for button hints
+  /* how long an upscale to SIZE MP takes on this machine, for the button hints: the median of
+     the last five finished the same way (from a preview, which runs more steps and goes through
+     1 MP for bigger sizes, or from a full-size image), or null before there is one */
+  function upscaleSecs(size, fromPreview) {
+    var t = [];
+    for (var i = 0; i < jobs.length && t.length < 5; i++) {
+      var j = jobs[i];
+      if (j.kind === "upscale" && j.state === "done" && j.size === size && j.created && j.finished
+          && (j.initT > 0.9) === fromPreview) t.push((j.finished - j.created) / 1000);
+    }
+    if (!t.length) return null;
+    t.sort(function (a, b) { return a - b; });
+    return Math.max(1, Math.round(t[t.length >> 1]));
+  }
   var $ = function (id) { return document.getElementById(id); };
 
   var PREFS_KEY = "ris-prefs-v3";
@@ -682,10 +695,12 @@ body.dragging .composer { outline: 2px dashed var(--accent); outline-offset: 4px
     $("next").setAttribute("aria-label", isPreview ? "Next preview" : "Next image");
     var secs = job.finished && job.created ? ((job.finished - job.created) / 1000).toFixed(1) + " s" : "";
     // sizes no bigger than the image (or less than 10% bigger) are shown but grayed out
+    var est = {};
+    SIZES.forEach(function (s) { est[s[0]] = upscaleSecs(+s[0], isPreview); });
     var ups = SIZES.map(function (s) {
       var bigger = isPreview || +s[0] > job.size * 1.1;
       return bigger
-        ? '<button class="primary" data-up="' + s[0] + '">' + s[1] + ' <small>~' + UPSCALE_SECS[s[0]] + 's</small></button>'
+        ? '<button class="primary" data-up="' + s[0] + '">' + s[1] + (est[s[0]] ? ' <small>~' + est[s[0]] + 's</small>' : '') + '</button>'
         : '<button class="primary" disabled title="This image is already ' + mpLabel(job) + '">' + s[1] + '</button>';
     }).join("");
     var editSize = prefs.editSize || "1";
