@@ -250,6 +250,9 @@ setup: rampart $MIN_RAMPART or newer was not found, and this rampart installer c
 EOF
         exit 1
     fi
+    # created first: the installer asks for root for any prefix under /usr/ (as a clone in
+    # /usr/local/src would be) unless the user already owns that directory
+    mkdir -p "$ROOT/rampart"
     "$bundle" --auto --prefix "$ROOT/rampart" || die "the rampart installer failed"
 }
 
