@@ -1,0 +1,3 @@
+# kept in the repo, left out of the release tar.gz and zip
+release.sh export-ignore
+.gitattributes export-ignore
