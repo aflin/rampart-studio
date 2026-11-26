@@ -141,9 +141,11 @@ start() {
     else
         echo "Starting the image engine..."
         # shellcheck disable=SC2086  # ENGINE_ARGS is a list of options
+        # all or nothing: a page that is up but cannot make images looks like a working Studio
         if ! engine start --port "$ENGINE_PORT" --out "$ROOT/web_server/data/ris/images" $ENGINE_ARGS; then
-            echo "The web server is running, but no images can be made until the engine starts."
-            echo "Fix the problem above, then run ./studio.sh start again (it starts only the engine)."
+            web stop >/dev/null 2>&1 || true
+            echo "Stopped the web server as well: Rampart Image Studio is not running."
+            echo "Fix the problem above, then run ./studio.sh start again."
             return 1
         fi
     fi
