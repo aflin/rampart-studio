@@ -61,8 +61,12 @@ start() {
     echo $! > $PIDFILE
     for _ in $(seq 300); do
         if ! running; then
-            # the last line of a Python traceback is the error itself
-            echo "RIS Engine failed to start: $(grep -v '^[[:space:]]*$' $LOG | tail -1)"
+            # the error: the last exception line of the traceback (CUDA may log notes after it),
+            # or else the log's last line
+            local err
+            err=$(grep -E '^[A-Za-z_][A-Za-z0-9_.]*(Error|Exception|Interrupt)\b' $LOG | tail -1)
+            [ -n "$err" ] || err=$(grep -v '^[[:space:]]*$' $LOG | tail -1)
+            echo "RIS Engine failed to start: $err"
             echo "  (see engine/$LOG)"
             rm -f $PIDFILE; return 1
         fi

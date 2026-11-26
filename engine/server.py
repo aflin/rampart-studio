@@ -35,6 +35,35 @@ INT8_DIT = os.path.join(ROOT, "weights", "flux-3-image-klein-comfy", "flux3-imag
 FP8_DIT = os.path.join(WEIGHTS, "variants", "fp8r", "model.safetensors")
 
 
+def make_room_for_cuda(log, want_gib=8):
+    """A GPU sharing the CPU's memory (DGX Spark): creating the CUDA context fails when the kernel
+    has little memory free, though page cache it could reclaim fills the rest (setup.sh's checksums
+    of the weights leave tens of GB of it), and the context does not wait for that.  Writing to
+    fresh memory makes the kernel reclaim cache; freeing it leaves that much free for CUDA."""
+    import mmap
+    import subprocess
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader"],
+                             capture_output=True, text=True, timeout=30).stdout
+        meminfo = {k: int(v.split()[0]) * 1024 for k, v in
+                   (line.split(":", 1) for line in open("/proc/meminfo"))}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return
+    if "N/A" not in out:  # the GPU has memory of its own
+        return
+    free, available = meminfo.get("MemFree", 0), meminfo.get("MemAvailable", 0)
+    chunk = 64 * 2**20
+    size = min(want_gib * 2**30 - free, available - free - 2 * 2**30) // chunk * chunk
+    if size <= 0:
+        return
+    room = mmap.mmap(-1, size)
+    for _ in range(size // chunk):
+        room.write(b"\1" * chunk)
+    room.close()
+    log(f"shared GPU memory: had the kernel reclaim {size / 2**30:.1f} GB of page cache "
+        f"({free / 2**30:.1f} GB was free) so CUDA can start")
+
+
 def default_dit():
     """INT8 convrot on comfy_kitchen when both are present (fastest, closest to bf16), else rowwise FP8."""
     try:
@@ -137,6 +166,7 @@ def main():
             WEIGHTS, args.out, args.refs, args.max_active, args.pass_tokens, log=log,
             quantize=None if args.quantize == "none" else int(args.quantize), cache_gb=args.cache_gb)
     else:
+        make_room_for_cuda(log)
         from ris_engine.engine import Engine
         log(f"DiT weights: {args.dit or default_dit()}")
         engine = Handler.engine = Engine(

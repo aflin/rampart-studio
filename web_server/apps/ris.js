@@ -127,7 +127,13 @@ function submit(job, captions) {
     var body = {};
     try { body = JSON.parse(res.text); } catch (e) {}
     if (res.status !== 200 || !body.id)
-        return "The image engine rejected the job: " + (body.error || res.text || res.errMsg || "not running");
+        return res.status ? "The image engine rejected the job: " + (body.error || res.text) : ENGINE_DOWN;
+}
+
+/* why the engine did not answer: not running at all (no connection), or something else */
+var ENGINE_DOWN = "The image engine is not running. On the server: ./studio.sh status (and engine/engine.log).";
+function engineError(res, fallback) {
+    return res.status ? fallback : ENGINE_DOWN;
 }
 
 function fail(job, msg) {
@@ -309,7 +315,7 @@ function upload(req) {
     try { r = JSON.parse(res.text); } catch (e) {}
     if (stat(path)) rmFile(path);
     if (res.status !== 200 || !r.file)
-        return {status: res.status === 400 ? 400 : 502, json: {error: r.error || "The image engine is not answering."}};
+        return {status: res.status === 400 ? 400 : 502, json: {error: r.error || engineError(res, "The image engine is not answering.")}};
     var now = Date.now();
     var job = {id: uuid4(), kind: "upload", prompt: "", filename: String(req.query.name || "").slice(0, 200),
                files: [r.file], width: r.width, height: r.height, size: r.width * r.height / 1048576,
@@ -333,7 +339,7 @@ function status(req) {
         fail(job, "The image engine restarted and lost this job; please generate again.");
         return {json: job};
     }
-    if (res.status !== 200) return {status: 502, json: {error: "The image engine is not answering."}};
+    if (res.status !== 200) return {status: 502, json: {error: engineError(res, "The image engine is not answering.")}};
     var st = JSON.parse(res.text);
     if (st.state === "done") {
         job.state = "done";
