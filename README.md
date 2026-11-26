@@ -44,6 +44,16 @@ Rampart (or, once Rampart's installer supports it, installs one into `rampart/`)
 
 ## Install
 
+Quick install of the latest release:
+
+    curl -fsSL https://rampart.dev/install-studio.sh | sh
+
+It asks where to install (default `./rampart-studio`), downloads the release from GitHub and
+runs `setup.sh` there. Run it again on that install to update it to the latest release; its
+settings, packages, weights and images are kept.
+
+Or from git:
+
     git clone https://github.com/aflin/rampart-studio && cd rampart-studio
     ./setup.sh                  # packages + weights for this machine; safe to re-run
     ./studio.sh start           # then open http://127.0.0.1:8088/studio/
