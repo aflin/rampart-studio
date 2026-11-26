@@ -364,9 +364,21 @@ mkdir -p weights
 touch $OK
 
 verified() { grep -qx "$1 $2" $OK; }
+# earlier versions of a file that an install may keep ("accept" lines): "sha256:size" each
+accepted() { awk -v d="$1" '$1 == "accept" && $4 == d { print $2 ":" $3 }' weights.manifest; }
+# the file is there at the manifest's size or an accepted earlier one's (not yet checked)
+present() {   # size dest
+    local have alt
+    [ -f "weights/$2.part" ] && [ "$(fsize "weights/$2.part")" = "$1" ] && return 0   # finished, unchecked
+    [ -f "weights/$2" ] || return 1
+    have=$(fsize "weights/$2")
+    [ "$have" = "$1" ] && return 0
+    for alt in $(accepted "$2"); do [ "$have" = "${alt#*:}" ] && return 0; done
+    return 1
+}
 
 fetch() {   # sha256 size dest sources...
-    local sum=$1 size=$2 dest=weights/$3; shift 3
+    local sum=$1 size=$2 rel=$3 dest=weights/$3; shift 3
     if [ -f "$dest" ] && [ "$(fsize "$dest")" = "$size" ]; then
         if [ $VERIFY = 0 ] && verified "$sum" "$dest"; then return 0; fi
         printf '  checking  %s\n' "$dest"
@@ -376,6 +388,24 @@ fetch() {   # sha256 size dest sources...
         fi
         echo "  checksum mismatch, downloading again: $dest"
         rm -f "$dest"
+    fi
+    local alt
+    if [ -f "$dest" ]; then   # an earlier version the manifest accepts
+        for alt in $(accepted "$rel"); do
+            [ "$(fsize "$dest")" = "${alt#*:}" ] || continue
+            if [ $VERIFY = 0 ] && verified "${alt%%:*}" "$dest"; then return 0; fi
+            printf '  checking  %s\n' "$dest"
+            if [ "$(sha256 "$dest")" = "${alt%%:*}" ]; then
+                verified "${alt%%:*}" "$dest" || echo "${alt%%:*} $dest" >> $OK
+                return 0
+            fi
+        done
+    fi
+    # a download that finished in an earlier run without being checked
+    if [ -f "$dest.part" ] && [ "$(fsize "$dest.part")" = "$size" ] && [ "$(sha256 "$dest.part")" = "$sum" ]; then
+        mv "$dest.part" "$dest"
+        echo "$sum $dest" >> $OK
+        return 0
     fi
     mkdir -p "$(dirname "$dest")"
     local src repo path auth
@@ -411,7 +441,7 @@ if [ $WEIGHTS = 1 ]; then
     total=0
     while read -r group sum size dest rest; do
         [[ $group == \#* || $groups != *" $group "* ]] && continue
-        [ -f "weights/$dest" ] && [ "$(fsize "weights/$dest")" = "$size" ] || total=$((total + size))
+        present "$size" "$dest" || total=$((total + size))
     done < weights.manifest
     say "Weights -> weights/ ($((total / 1073741824)) GB to download)"
     if [ $total -gt 0 ]; then
